@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"time"
 )
 
 var globalInfo GlobalInfo
@@ -84,6 +85,7 @@ func snatchFunc(c *gin.Context) {
 		return
 	}
 	//生成随机数以发放红包
+	rand.Seed(time.Now().Unix())
 	randomNumber := rand.Float64()
 	//运气不好没抢到
 	if randomNumber > globalInfo.Probability {
