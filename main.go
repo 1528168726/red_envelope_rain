@@ -12,7 +12,7 @@ import (
 var globalInfo GlobalInfo
 
 func main() {
-
+	//
 	// 创建路由
 	r := gin.Default()
 	// 绑定三个接口
