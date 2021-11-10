@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"github.com/gin-gonic/gin"
 	"log"
 	"math/rand"
@@ -96,7 +97,15 @@ func snatchFunc(c *gin.Context) {
 		return
 	}
 	//得到红包金额
-	revelopValue := generateRevelopValue()
+	revelopValue, err := generateEnvelopValue()
+	if err != nil {
+		log.Print(err)
+		c.JSON(http.StatusOK, gin.H{
+			"Code": NoMoney,
+			"Msg":  "没钱了",
+		})
+		return
+	}
 	envelopId, err := insertEnvelopes(request.Uid, revelopValue, curRevelopCount+1)
 	if err != nil {
 		log.Print(err)
@@ -202,7 +211,56 @@ func getWalletListFunc(c *gin.Context) {
 	c.JSON(http.StatusOK, respond)
 }
 
-//红包金额算法：未作优化
-func generateRevelopValue() int {
-	return 1
+// 获得一个红包金额，没钱会从总表中取出1/10的钱生成1/10总额的个红包（暂时为10个）
+func generateEnvelopValue() (int, error) {
+	info := GlobalInfo{}
+	Db.First(&info)
+	budget := info.Budget
+	expenses := info.Expenses
+	listKey := "envList"
+	amount := getEnvAmount(listKey)
+	if amount == 0 {
+		// redis里没有预先生成好的红包了，向总表申请一笔钱重新生成
+		money := budget / 10
+		if expenses+money > budget {
+			// 钱不够，无法再生成了
+			return 0, errors.New("没钱了")
+		}
+		insertList(listKey, genEnvList(money, 10))
+		updateExpenses(money)
+		amount = getEnvAmount(listKey)
+	}
+	return amount, nil
+}
+
+// 根据金额和数量生成待发红包列表
+// 可以自由调整金额、数量，保证每个红包的期望是钱/人数的平均值
+func genEnvList(money, num int64) []int {
+	envList := make([]int, num)
+	if money < num {
+		panic("红包数太多，钱不够分了")
+	}
+	// 每个人先发1分钱
+	for i := int64(0); i < num; i++ {
+		envList[i] += 1
+	}
+	remainMoney := money - num
+	remainNum := num
+	// 剩余的钱随机发给每个人，每个人具体获得[0, 2*avg)范围内的一个随机整数
+	rand.Seed(time.Now().UnixNano())
+	for i := int64(0); i < num; i++ {
+		avg := int(remainMoney / remainNum)
+		randMoney := rand.Intn(2 * avg)
+		// 如果钱不够发，则只发剩余钱数然后直接结束；如果只剩最后一人则全发
+		if int64(randMoney) >= remainMoney || remainNum == 1 {
+			envList[i] += int(remainMoney)
+			remainMoney = 0
+			remainNum = 0
+			break
+		}
+		envList[i] += randMoney
+		remainMoney -= int64(randMoney)
+		remainNum--
+	}
+	return envList
 }

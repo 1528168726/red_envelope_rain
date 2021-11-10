@@ -24,7 +24,7 @@ const (
 )
 
 var Db *gorm.DB
-var redis_client *redis.Client
+var redisClient *redis.Client
 var ctx = context.Background()
 
 type Envelopes struct {
@@ -74,7 +74,7 @@ func init() {
 	}
 
 	//redis连接
-	redis_client = redis.NewClient(&redis.Options{
+	redisClient = redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
 		Password: redisPassword,
 		PoolSize: 100,
@@ -96,7 +96,7 @@ func getUser(uid int64) Users {
 
 func getUserCurCount(uid int64) (count int) {
 	userString := fmt.Sprintf("user_%d", uid)
-	num, err := redis_client.HGet(ctx, userString, "cur_count").Result()
+	num, err := redisClient.HGet(ctx, userString, "cur_count").Result()
 	// redis中不存在
 	if err != nil {
 		res := Users{}
@@ -113,8 +113,8 @@ func getUserCurCount(uid int64) (count int) {
 					log.Print(err)
 				}
 			}()
-			redis_client.HSet(ctx, userString, "cur_count", 0)
-			redis_client.HSet(ctx, userString, "balance", 0)
+			redisClient.HSet(ctx, userString, "cur_count", 0)
+			redisClient.HSet(ctx, userString, "balance", 0)
 		}
 		return 0
 	}
@@ -151,15 +151,15 @@ func insertEnvelopes(uid int64, value int, curCount int) (int64, error) {
 	}()
 	env := <-envChan
 	// 当前user拥有红包List
-	redis_client.RPush(ctx, userEnvString, env.EnvelopeId)
+	redisClient.RPush(ctx, userEnvString, env.EnvelopeId)
 	// 更新红包表
 	envIdSrting := strconv.FormatInt(env.EnvelopeId, 10)
-	redis_client.HSet(ctx, envIdSrting, "value", value)
-	redis_client.HSet(ctx, envIdSrting, "opened", false)
-	redis_client.HSet(ctx, envIdSrting, "time", now)
+	redisClient.HSet(ctx, envIdSrting, "value", value)
+	redisClient.HSet(ctx, envIdSrting, "opened", false)
+	redisClient.HSet(ctx, envIdSrting, "time", now)
 
 	// 更新redis user's cur_count
-	redis_client.HIncrBy(ctx, userString, "cur_count", 1)
+	redisClient.HIncrBy(ctx, userString, "cur_count", 1)
 
 	return env.EnvelopeId, nil
 }
@@ -167,7 +167,7 @@ func insertEnvelopes(uid int64, value int, curCount int) (int64, error) {
 //未保证事务性
 func getEnvelopValue(envelopId int64) (int, bool, error) {
 	envIdString := strconv.FormatInt(envelopId, 10)
-	valueStr, err := redis_client.HGet(ctx, envIdString, "value").Result()
+	valueStr, err := redisClient.HGet(ctx, envIdString, "value").Result()
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
 		log.Print("str 2 int error")
@@ -187,12 +187,12 @@ func getEnvelopValue(envelopId int64) (int, bool, error) {
 				return 0, false, err
 			}
 		}
-		redis_client.HSet(ctx, envIdString, "value", envelop.Value)
-		redis_client.HSet(ctx, envIdString, "opened", true)
-		redis_client.HSet(ctx, envIdString, "time", envelop.SnatchTime)
+		redisClient.HSet(ctx, envIdString, "value", envelop.Value)
+		redisClient.HSet(ctx, envIdString, "opened", true)
+		redisClient.HSet(ctx, envIdString, "time", envelop.SnatchTime)
 		return value, opened, nil
 	}
-	open, _ := redis_client.HGet(ctx, envIdString, "opened").Result()
+	open, _ := redisClient.HGet(ctx, envIdString, "opened").Result()
 	if open == "1" {
 		opened = true
 	} else {
@@ -203,7 +203,7 @@ func getEnvelopValue(envelopId int64) (int, bool, error) {
 
 func updateUserValueSum(uid int64, value int) error {
 	userString := fmt.Sprintf("user_%d", uid)
-	redis_client.HIncrBy(ctx, userString, "balance", int64(value))
+	redisClient.HIncrBy(ctx, userString, "balance", int64(value))
 	return Db.Model(&Users{}).Where("uid=?", uid).Update("value_sum", gorm.Expr("value_sum + ? ", value)).Error
 }
 
@@ -214,4 +214,29 @@ func getEnvelopes(uid int64) ([]Envelopes, error) {
 		return nil, err
 	}
 	return envelop, nil
+}
+
+// 将红包列表插入redis
+func insertList(listKey string, envList []int) {
+	for _, v := range envList {
+		redisClient.RPush(ctx, listKey, v)
+	}
+}
+
+// 从redis的红包列表中取出一个红包金额，空了返回0
+func getEnvAmount(listKey string) int {
+	first, err := redisClient.LPop(ctx, listKey).Result()
+	if err != nil {
+		fmt.Println("redis中没有红包")
+		return 0
+	}
+	n, _ := strconv.Atoi(first)
+	return n
+}
+
+// 更新总表已花费的钱数
+func updateExpenses(money int64) {
+	info := GlobalInfo{}
+	Db.First(&info)
+	Db.Model(&info).Update("expenses", info.Expenses+money)
 }
