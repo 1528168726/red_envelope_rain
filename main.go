@@ -211,7 +211,7 @@ func getWalletListFunc(c *gin.Context) {
 	c.JSON(http.StatusOK, respond)
 }
 
-// 获得一个红包金额，没钱会从总表中取出1/10的钱生成1/10总额的个红包（暂时为10个）
+// 获得一个红包金额，没钱会从总表中取出1/10的钱生成1/10总额的个红包
 func generateEnvelopValue() (int, error) {
 	info := GlobalInfo{}
 	Db.First(&info)
@@ -226,8 +226,8 @@ func generateEnvelopValue() (int, error) {
 			// 钱不够，无法再生成了
 			return 0, errors.New("没钱了")
 		}
-		insertList(listKey, genEnvList(money, 10))
-		updateExpenses(money)
+		insertList(listKey, genEnvList(money, info.ALLEnvelopeNum/10))
+		updateExpenses(money, info.ALLEnvelopeNum/10)
 		amount = getEnvAmount(listKey)
 	}
 	return amount, nil

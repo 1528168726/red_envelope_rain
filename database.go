@@ -42,11 +42,13 @@ type Users struct {
 }
 
 type GlobalInfo struct {
-	Id          int
-	MaxReCount  int
-	Probability float64
-	Budget      int64
-	Expenses    int64
+	Id              int
+	MaxReCount      int
+	Probability     float64
+	Budget          int64
+	Expenses        int64
+	RestEnvelopeNum int64
+	ALLEnvelopeNum  int64
 }
 
 func (v Envelopes) TableName() string {
@@ -235,8 +237,8 @@ func getEnvAmount(listKey string) int {
 }
 
 // 更新总表已花费的钱数
-func updateExpenses(money int64) {
+func updateExpenses(money int64, num int64) {
 	info := GlobalInfo{}
 	Db.First(&info)
-	Db.Model(&info).Update("expenses", info.Expenses+money)
+	Db.Model(&info).Update("expenses", info.Expenses+money).Update("rest_envelope_num", info.RestEnvelopeNum-num)
 }
